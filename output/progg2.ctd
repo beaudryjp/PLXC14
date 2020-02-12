@@ -1,0 +1,6 @@
+L0:
+L1:
+L2:
+	# variable suma not declared.
+	error;
+	halt;

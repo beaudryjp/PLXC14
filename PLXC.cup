@@ -1,0 +1,284 @@
+import java_cup.runtime.*;
+
+/*
+parser code {:
+  @Override
+  public void report_error(String message, Object info) {
+      Generator.comment("syntax error: " + info);
+      Generator.error();
+      Generator.halt();
+  }
+:}
+*/
+
+/* Terminals */
+terminal                OP, CP, OB, CB, SEMICOLON, COMMA;
+terminal                PLUS, MINUS, MUL, DIV, UMINUS, MOD;
+terminal                ASIG, INC, DEC;
+terminal                AND, OR, NOT;
+terminal                LT, GT, LTOREQ, GTOREQ, EQ, NOTEQ;
+terminal                IF, ELSE, WHILE, DO, PRINT;
+terminal                INT;
+terminal        String  VAR, NUMBER;
+terminal        String  FOR, TO, STEP, DOWNTO;
+
+/* Non terminals */
+non terminal            listSentence;
+non terminal            sentence;
+non terminal            elseCond;
+non terminal            ifSentence;
+non terminal            whileSentence;
+non terminal            doWhileSentence;
+non terminal            forSentence;
+non terminal            forToSentence;
+non terminal            forDownToSentence;
+non terminal            printSentence;
+non terminal            block;
+non terminal    String  expression;
+non terminal    String  ifPART;
+non terminal    String  whilePART;
+non terminal    String  doPART;
+non terminal    String  forPART;
+non terminal    String  stepPart;
+non terminal    String  toPart;
+non terminal    String  downToPart;
+non terminal    String  type;
+non terminal    String  varDeclaration;
+non terminal    String  valueDeclaration;
+non terminal    String  variable;
+non terminal    Tag     condition;
+
+/* Precedences */
+/* https://ee.hawaii.edu/~tep/EE160/Book/chap5/_28291_table577.gif */
+precedence  left        COMMA;
+precedence  right       ASIG;
+precedence  left        OR;
+precedence  left        AND;
+precedence  left        EQ, NOTEQ, LT, LTOREQ, GT, GTOREQ;
+precedence  left        PLUS, MINUS;
+precedence  left        MUL, DIV, MOD;
+precedence  left        UMINUS;
+precedence  right       NOT, INC, DEC;
+precedence  nonassoc    IF;
+precedence  nonassoc    ELSE;
+
+/* Grammar */
+start with listSentence;
+
+listSentence        ::= sentence
+                    |   listSentence sentence
+;
+
+sentence            ::= varDeclaration SEMICOLON
+                    |   expression SEMICOLON
+                    |   ifSentence
+                    |   whileSentence
+                    |   doWhileSentence
+                    |   forSentence
+                    |   forToSentence
+                    |   forDownToSentence
+                    |   printSentence
+                    |   block                         
+;
+
+ifSentence          ::= ifPART:tag OP condition:c                   {:  Generator.label(c.getT()); :}  
+                        CP sentence                                 {:  Generator.gotoLabel(tag);  
+                                                                        Generator.label(c.getF()); 
+                                                                    :}  
+                        elseCond                                    {:  Generator.label(tag); :}
+;
+
+whileSentence       ::= whilePART:tag                               {:  Generator.label(tag); :}   
+                        OP condition:c                              {:  Generator.label(c.getT()); :}            
+                        CP sentence                                 {:  Generator.gotoLabel(tag);  
+                                                                        Generator.label(c.getF()); 
+                                                                    :}
+;
+
+doWhileSentence     ::= doPART:tag                                  {:  Generator.label(tag); :}                 
+                        sentence WHILE OP condition:c CP SEMICOLON  {:  Generator.label(c.getT());  
+                                                                        Generator.gotoLabel(tag);  
+                                                                        Generator.label(c.getF()); 
+                                                                    :} 
+;
+
+forSentence         ::= forPART:tag OP expression:e1 SEMICOLON      {:  Generator.label(tag); :}                 
+                        condition:c SEMICOLON                       {:  RESULT = Generator.newLabel();  
+                                                                        Generator.label(RESULT.toString()); 
+                                                                    :}  
+                        expression:e2 CP                            {:  Generator.gotoLabel(tag);  
+                                                                        Generator.label(c.getT()); 
+                                                                    :}           
+                        sentence                                    {:  Generator.gotoLabel(RESULT.toString());  
+                                                                        Generator.label(c.getF()); 
+                                                                    :}
+;
+
+forToSentence           ::= forPART:tag expression:e1 toPart:to expression:e2       {:  Generator.label(tag);
+                                                                                        RESULT = Generator.condition(Generator.LTOREQ, e1, e2);
+                                                                                        Generator.label(to);
+                                                                                    :}
+                        stepPart:s DO                                               {:  Generator.loopCounter(Generator.PLUS, e1, s);
+                                                                                        Generator.gotoLabel(tag);
+                                                                                        Generator.label( ((Tag) RESULT).getT() );
+                                                                                    :} 
+                        sentence                                                    {:  
+                                                                                        Generator.gotoLabel(to);
+                                                                                        Generator.label( ((Tag) RESULT).getF() );
+                                                                                    :}
+;
+
+forDownToSentence       ::= forPART:tag expression:e1 downToPart:to expression:e2   {:  Generator.label(tag);
+                                                                                        RESULT = Generator.condition(Generator.GTOREQ, e1, e2);
+                                                                                        Generator.label(to);
+                                                                                    :}
+                        stepPart:s DO                                               {:  Generator.loopCounter(Generator.MINUS, e1, s);
+                                                                                        Generator.gotoLabel(tag);
+                                                                                        Generator.label( ((Tag) RESULT).getT() );
+                                                                                    :} 
+                        sentence                                                    {:  
+                                                                                        Generator.gotoLabel(to);
+                                                                                        Generator.label( ((Tag) RESULT).getF() );
+                                                                                    :}
+;
+
+printSentence       ::= PRINT OP expression:e CP SEMICOLON          {:  RESULT = Generator.print(e); :}
+;
+
+block               ::= OB                                          {:  SymbolTable.startBlock(); :} 
+                        listSentence                                {:  SymbolTable.endBlock(); :} 
+                        CB   
+;
+
+ifPART              ::= IF                                          {:  RESULT = Generator.newLabel(); :}
+;
+
+whilePART           ::= WHILE                                       {:  RESULT = Generator.newLabel(); :}
+;
+
+doPART              ::= DO                                          {:  RESULT = Generator.newLabel(); :}
+;
+
+forPART             ::= FOR                                         {:  RESULT = Generator.newLabel(); :}
+;
+
+toPart              ::= TO                                          {:  RESULT = Generator.newLabel(); :}
+;
+
+downToPart          ::= DOWNTO                                      {:  RESULT = Generator.newLabel(); :}
+;
+
+stepPart            ::= STEP expression:e                           {:  RESULT = e; :}
+                    |                                               {:  RESULT = "1"; :}
+;
+
+elseCond            ::= ELSE sentence
+                    |
+;
+
+varDeclaration      ::= type:t                                      {:  RESULT = t; :} 
+                        VAR:v                                       {:  if(SymbolTable.findInCurrentBlock(v))
+                                                                            Generator.varDeclared(v);   
+                                                                    :}
+                        valueDeclaration:val                        {:  String tmp = SymbolTable.varBlock(v);
+                                                                        if(val != null){
+                                                                            if(SymbolTable.find(v) && SymbolTable.getIndex() > 0)
+                                                                                Generator.assignment(tmp, val);
+                                                                            else
+                                                                                Generator.assignment(v, val); 
+                                                                        }
+                                                                        if(SymbolTable.find(v) && SymbolTable.getIndex() > 0)
+                                                                            SymbolTable.put(tmp, t);
+                                                                        else
+                                                                            SymbolTable.put(v, t); 
+                                                                        if(Generator.DEBUG) SymbolTable.showTable(); 
+                                                                    :}
+                    |   varDeclaration:t COMMA valueDeclaration:v   {:  if(SymbolTable.findInCurrentBlock(v)){
+                                                                            Generator.varDeclared(v);
+                                                                        }
+                                                                        else{
+                                                                            if(SymbolTable.find(v) && SymbolTable.getIndex() > 0)
+                                                                                SymbolTable.put(SymbolTable.varBlock(v), t);
+                                                                            else
+                                                                                SymbolTable.put(v, t);
+                                                                        }
+                                                                        if(Generator.DEBUG) SymbolTable.showTable(); 
+                                                                    :}
+;
+
+valueDeclaration    ::= ASIG expression:e                           {:  RESULT = e; :}
+                    |   variable:v ASIG expression:e                {:  RESULT = v; 
+                                                                        Generator.assignment(v, e); 
+                                                                    :}
+                    |   variable:v                                  {:  RESULT = v; :}
+                    |                                               {:  RESULT = null; :}
+;
+
+variable            ::= VAR:v                                       {:  String tmp = SymbolTable.varBlock(v);
+                                                                        if(SymbolTable.find(v)){
+                                                                            if(SymbolTable.findInCurrentBlock(tmp)){ RESULT = tmp; }
+                                                                            else {
+                                                                                int blk = SymbolTable.inWhichBlock(v); 
+                                                                                if(blk > 0){ RESULT = v + "_" + blk; }
+                                                                                else { RESULT = v; }
+                                                                            }
+                                                                        }
+                                                                        else { RESULT = v; } 
+                                                                    :}
+;
+
+type                ::= INT                                         {:  RESULT = Type.INT; :}
+;
+
+expression          ::= expression:e1 PLUS expression:e2            {:  RESULT = Generator.arithmetic(Generator.PLUS, e1, e2); :}
+                    |   expression:e1 MINUS expression:e2           {:  RESULT = Generator.arithmetic(Generator.MINUS, e1, e2); :}
+                    |   expression:e1 MUL expression:e2             {:  RESULT = Generator.arithmetic(Generator.MUL, e1, e2); :}
+                    |   expression:e1 DIV expression:e2             {:  RESULT = Generator.arithmetic(Generator.DIV, e1, e2); :}
+                    |   expression:e1 MOD expression:e2             {:  RESULT = Generator.arithmetic(Generator.MOD, e1, e2); :}
+                    |   MINUS expression:e                          {:  RESULT = Generator.arithmetic(Generator.MIN, e, null); :} %prec UMINUS
+                    |   variable:v INC                              {:  if(!SymbolTable.find(v))
+                                                                            Generator.varNotDeclared(v); 
+                                                                        RESULT = Generator.increment(Generator.INCR, v);
+                                                                    :}
+                    |   INC variable:v                              {:  if(!SymbolTable.find(v))
+                                                                            Generator.varNotDeclared(v); 
+                                                                        RESULT = Generator.increment(Generator.INCL, v);
+                                                                    :}
+                    |   variable:v DEC                              {:  if(!SymbolTable.find(v))
+                                                                            Generator.varNotDeclared(v); 
+                                                                        RESULT = Generator.increment(Generator.DECR, v);
+                                                                    :}
+                    |   DEC variable:v                              {:  if(!SymbolTable.find(v))
+                                                                            Generator.varNotDeclared(v); 
+                                                                        RESULT = Generator.increment(Generator.DECL, v);
+                                                                    :}
+                    |   variable:v                                  {:  if(!SymbolTable.find(v))
+                                                                            Generator.varNotDeclared(v); 
+                                                                        else
+                                                                            RESULT = v;
+                                                                    :}
+                    |   variable:v                                  {:  if(!SymbolTable.find(v))
+                                                                            Generator.varNotDeclared(v); 
+                                                                    :} 
+                        ASIG expression:e                           {:  RESULT = v;
+                                                                        Generator.assignment(v, e);
+                                                                    :}
+                    |   OP expression:e CP                          {:  RESULT = e; :}
+                    |   NUMBER:n                                    {:  RESULT = n; :}       
+;
+
+condition           ::= expression:e1 EQ expression:e2              {:  RESULT = Generator.condition(Generator.EQ, e1, e2); :}
+                    |   expression:e1 NOTEQ expression:e2           {:  RESULT = Generator.condition(Generator.NOTEQ, e1, e2); :}
+                    |   expression:e1 LT expression:e2              {:  RESULT = Generator.condition(Generator.LT, e1, e2); :}
+                    |   expression:e1 LTOREQ expression:e2          {:  RESULT = Generator.condition(Generator.LTOREQ, e1, e2); :}
+                    |   expression:e1 GT expression:e2              {:  RESULT = Generator.condition(Generator.GT, e1, e2); :}
+                    |   expression:e1 GTOREQ expression:e2          {:  RESULT = Generator.condition(Generator.GTOREQ, e1, e2); :}
+                    |   NOT condition:c1                            {:  RESULT = Generator.operator(Generator.NOT, c1, null); :}
+                    |   condition:c1 AND                            {:  Generator.label(c1.getT()); :} 
+                        condition:c2                                {:  RESULT = Generator.operator(Generator.AND, c1, c2); :}
+
+                    |   condition:c1 OR                             {:  Generator.label(c1.getF()); :} 
+                        condition:c2                                {:  RESULT = Generator.operator(Generator.OR, c1, c2); :}
+
+                    |   OP condition:c CP                           {:  RESULT = c; :}
+;

@@ -1,0 +1,3 @@
+	# variable f not declared.
+	error;
+	halt;
